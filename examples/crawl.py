@@ -12,7 +12,7 @@ import aiohttp
 
 class Crawler:
 
-    def __init__(self, rooturl, loop, maxtasks=100):
+    def __init__(self, rooturl, loop, maxtasks=100, maxlevel=1):
         self.rooturl = rooturl
         self.loop = loop
         self.todo = set()
@@ -20,13 +20,14 @@ class Crawler:
         self.done = {}
         self.tasks = set()
         self.sem = asyncio.Semaphore(maxtasks)
+        self.maxlevel = maxlevel
 
         # session stores cookies between requests and uses connection pool
         self.session = aiohttp.Session()
 
     @asyncio.coroutine
     def run(self):
-        asyncio.Task(self.addurls([(self.rooturl, '')]))  # Set initial work.
+        asyncio.Task(self.addurls([(self.rooturl, '')], 0))  # Set initial work.
         yield from asyncio.sleep(1)
         while self.busy:
             yield from asyncio.sleep(1)
@@ -35,23 +36,24 @@ class Crawler:
         self.loop.stop()
 
     @asyncio.coroutine
-    def addurls(self, urls):
+    def addurls(self, urls, currentlevel):
         for url, parenturl in urls:
             url = urllib.parse.urljoin(parenturl, url)
             url, frag = urllib.parse.urldefrag(url)
             if (url.startswith(self.rooturl) and
                     url not in self.busy and
                     url not in self.done and
-                    url not in self.todo):
+                    url not in self.todo and
+                    currentlevel <= self.maxlevel):
                 self.todo.add(url)
                 yield from self.sem.acquire()
-                task = asyncio.Task(self.process(url))
+                task = asyncio.Task(self.process(url, currentlevel))
                 task.add_done_callback(lambda t: self.sem.release())
                 task.add_done_callback(self.tasks.remove)
                 self.tasks.add(task)
 
     @asyncio.coroutine
-    def process(self, url):
+    def process(self, url, currentlevel):
         print('processing:', url)
 
         self.todo.remove(url)
@@ -66,7 +68,8 @@ class Crawler:
             if resp.status == 200 and resp.get_content_type() == 'text/html':
                 data = (yield from resp.read()).decode('utf-8', 'replace')
                 urls = re.findall(r'(?i)href=["\']?([^\s"\'<>]+)', data)
-                asyncio.Task(self.addurls([(u, url) for u in urls]))
+                currentlevel += 1
+                asyncio.Task(self.addurls([(u, url) for u in urls], currentlevel))
 
             resp.close()
             self.done[url] = True
@@ -79,7 +82,13 @@ class Crawler:
 def main():
     loop = asyncio.get_event_loop()
 
-    c = Crawler(sys.argv[1], loop)
+    maxlevel = 1
+    try:
+        maxlevel = int(sys.argv[2])
+    except IndexError:
+        pass
+    
+    c = Crawler(sys.argv[1], loop, maxlevel=maxlevel)
     asyncio.Task(c.run())
 
     try:
