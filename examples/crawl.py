@@ -70,13 +70,14 @@ class Crawler:
             if resp.status == 200 and resp.get_content_type() == 'text/html':
                 data = (yield from resp.read()).decode('utf-8', 'replace')
                 element = html.fromstring(data)
-                print(element.find('.//title').text)
                 urls = []
                 for urlregex in self.url_xpath:
                     regexp = re.compile(urlregex)
                     if regexp.match(url):
                         print('URL matched! ' + url)
-                        nextelements = element.xpath(self.url_xpath[urlregex])
+                        for field in self.url_xpath[urlregex]['fields']:
+                            print(field + ': ' + element.find(self.url_xpath[urlregex]['fields'][field]).text)
+                        nextelements = element.xpath(self.url_xpath[urlregex]['xpath'])
                         print(nextelements)
                         urls = [elem.find('./a').attrib['href'] for elem in nextelements]
                 currentlevel += 1
@@ -92,11 +93,23 @@ class Crawler:
 
 example_rooturl = 'http://www.dmoz.org/'
 
-# {'regular expression of url': 'xpath of links'}
 url_xpath_example = {
-                     '^http[s]?:\/\/[^\/]+\/$': './/div[@class="one-third"]/span', # top level
-                     '^http[s]?:\/\/[^\/]+\/[^\/]+\/$': './/div[contains(concat(" ",@class," "), "dir-1 borN")]/ul/li', # second level
-                     }
+                     '^http[s]?:\/\/[^\/]+\/$': # 'regular expression of url'
+                        {
+                         'xpath': './/div[@class="one-third"]/span', # 'XPath of links to be crawled next'
+                         'fields': {
+                                    'title': './/title', # content to scrape at the current url
+                                   }
+                        }, # top level
+                     '^http[s]?:\/\/[^\/]+\/[^\/]+\/$':
+                        {
+                         'xpath': './/div[contains(concat(" ",@class," "), "dir-1 borN")]/ul/li',
+                         'fields': {
+                                    'title': './/title',
+                                    'lastupdate': './/div[@class="ft-barUpN"]',
+                                   }
+                        }, # second level
+                    }
 
 def main():
     loop = asyncio.get_event_loop()
