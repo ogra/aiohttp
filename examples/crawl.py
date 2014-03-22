@@ -13,7 +13,7 @@ from lxml import html
 
 class Crawler:
 
-    def __init__(self, rooturl, loop, maxtasks=100, maxlevel=1):
+    def __init__(self, rooturl, loop, maxtasks=100, maxlevel=1, url_xpath={}):
         self.rooturl = rooturl
         self.loop = loop
         self.todo = set()
@@ -22,6 +22,7 @@ class Crawler:
         self.tasks = set()
         self.sem = asyncio.Semaphore(maxtasks)
         self.maxlevel = maxlevel
+        self.url_xpath = url_xpath
 
         # session stores cookies between requests and uses connection pool
         self.session = aiohttp.Session()
@@ -70,7 +71,14 @@ class Crawler:
                 data = (yield from resp.read()).decode('utf-8', 'replace')
                 element = html.fromstring(data)
                 print(element.find('.//title').text)
-                urls = re.findall(r'(?i)href=["\']?([^\s"\'<>]+)', data)
+                urls = []
+                for urlregex in self.url_xpath:
+                    regexp = re.compile(urlregex)
+                    if regexp.match(url):
+                        print('URL matched! ' + url)
+                        nextelements = element.xpath(self.url_xpath[urlregex])
+                        print(nextelements)
+                        urls = [elem.find('./a').attrib['href'] for elem in nextelements]
                 currentlevel += 1
                 asyncio.Task(self.addurls([(u, url) for u in urls], currentlevel))
 
@@ -82,16 +90,29 @@ class Crawler:
               'still pending, todo', len(self.todo))
 
 
+example_rooturl = 'http://www.dmoz.org/'
+
+# {'regular expression of url': 'xpath of links'}
+url_xpath_example = {
+                     '^http[s]?:\/\/[^\/]+\/$': './/div[@class="one-third"]/span', # top level
+                     '^http[s]?:\/\/[^\/]+\/[^\/]+\/$': './/div[contains(concat(" ",@class," "), "dir-1 borN")]/ul/li', # second level
+                     }
+
 def main():
     loop = asyncio.get_event_loop()
 
+    try:
+        rooturl = sys.argv[1]
+    except IndexError:
+        rooturl = example_rooturl
+    
     maxlevel = 1
     try:
         maxlevel = int(sys.argv[2])
     except IndexError:
         pass
     
-    c = Crawler(sys.argv[1], loop, maxlevel=maxlevel)
+    c = Crawler(rooturl, loop, maxlevel=maxlevel, url_xpath=url_xpath_example)
     asyncio.Task(c.run())
 
     try:
