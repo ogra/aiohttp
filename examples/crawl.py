@@ -74,11 +74,16 @@ class Crawler:
                 for urlregex in self.url_xpath:
                     regexp = re.compile(urlregex)
                     if regexp.match(url):
-                        print('URL matched! ' + url)
                         for field in self.url_xpath[urlregex]['fields']:
-                            print(field + ': ' + element.find(self.url_xpath[urlregex]['fields'][field]).text)
+                            value = element.find(self.url_xpath[urlregex]['fields'][field])
+                            if value != None:
+                                if value.tag == 'a':
+                                    print(field + ': '+ value.text + ' ' + value.attrib['href'])
+                                elif value.tag == 'title':
+                                    print(field + ': ' + value.text)
+                                else:
+                                    print(field + ': ' + html.tostring(value, method='text').decode(encoding='UTF-8'))
                         nextelements = element.xpath(self.url_xpath[urlregex]['xpath'])
-                        print(nextelements)
                         urls = [elem.find('./a').attrib['href'] for elem in nextelements]
                 currentlevel += 1
                 asyncio.Task(self.addurls([(u, url) for u in urls], currentlevel))
@@ -96,17 +101,19 @@ example_rooturl = 'http://www.dmoz.org/'
 url_xpath_example = {
                      '^http[s]?:\/\/[^\/]+\/$': # 'regular expression of url'
                         {
-                         'xpath': './/div[@class="one-third"]/span', # 'XPath of links to be crawled next'
+                         'xpath': './/div[@class="one-third"][1]/span[1]', # 'XPath of links to be crawled next'
                          'fields': {
                                     'title': './/title', # content to scrape at the current url
                                    }
                         }, # top level
-                     '^http[s]?:\/\/[^\/]+\/[^\/]+\/$':
+                     '^http[s]?:\/\/[^\/]+\/[^\/]+\/.*$':
                         {
                          'xpath': './/div[contains(concat(" ",@class," "), "dir-1 borN")]/ul/li',
                          'fields': {
                                     'title': './/title',
                                     'lastupdate': './/div[@class="ft-barUpN"]',
+                                    'directoryurl': './/fieldset[@class="fieldcap"]/ul[@class="directory-url"]/li/a',
+                                    'description': './/fieldset[@class="fieldcap"]/ul[@class="directory-url"]/li',
                                    }
                         }, # second level
                     }
