@@ -8,6 +8,7 @@ import asyncio
 import urllib.parse
 
 import aiohttp
+from lxml import html
 
 
 class Crawler:
@@ -67,6 +68,8 @@ class Crawler:
         else:
             if resp.status == 200 and resp.get_content_type() == 'text/html':
                 data = (yield from resp.read()).decode('utf-8', 'replace')
+                element = html.fromstring(data)
+                print(element.find('.//title').text)
                 urls = re.findall(r'(?i)href=["\']?([^\s"\'<>]+)', data)
                 currentlevel += 1
                 asyncio.Task(self.addurls([(u, url) for u in urls], currentlevel))
