@@ -4,14 +4,20 @@ import logging
 import re
 import signal
 import sys
-import asyncio
 import urllib.parse
+import os.path
+import sqlite3
 
+import asyncio
 import aiohttp
 from lxml import html
 
 
 class Crawler:
+
+    db_file = 'db.sqlite3'
+    conn = None
+    cursor = None
 
     def __init__(self, rooturl, loop, maxtasks=100, maxlevel=1, url_xpath={}):
         self.rooturl = rooturl
@@ -27,15 +33,42 @@ class Crawler:
         # session stores cookies between requests and uses connection pool
         self.session = aiohttp.Session()
 
+    def init_db(self):
+        if not os.path.isfile(Crawler.db_file):
+            Crawler.conn = sqlite3.connect(Crawler.db_file)
+            Crawler.cursor = Crawler.conn.cursor()
+            sql = """CREATE TABLE links (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    page_url   TEXT,
+                    page_title TEXT,
+                    site_name  TEXT,
+                    site_url   TEXT,
+                    site_desc  TEXT);"""
+            Crawler.cursor.execute(sql)
+            Crawler.conn.commit()
+        else:
+            Crawler.conn = sqlite3.connect(Crawler.db_file)
+            Crawler.cursor = Crawler.conn.cursor()
+
+    @asyncio.coroutine
+    def insert_db(self, dbvalue):
+        Crawler.cursor.execute("INSERT INTO links VALUES (NULL,?,?,?,?,?);", dbvalue)
+
     @asyncio.coroutine
     def run(self):
+        self.init_db()
         asyncio.Task(self.addurls([(self.rooturl, '')], 0))  # Set initial work.
         yield from asyncio.sleep(1)
         while self.busy:
+            Crawler.conn.commit()
             yield from asyncio.sleep(1)
 
         self.session.close()
         self.loop.stop()
+        Crawler.conn.commit()
+        Crawler.cursor.close()
+        Crawler.conn.close()
+
 
     @asyncio.coroutine
     def addurls(self, urls, currentlevel):
@@ -76,13 +109,24 @@ class Crawler:
                     if regexp.match(url):
                         for field in self.url_xpath[urlregex]['fields']:
                             value = element.find(self.url_xpath[urlregex]['fields'][field])
+                            dbvalue = [url, None, None, None, None] # [page_url, page_title, site_name, site_url, site_desc]
                             if value != None:
                                 if value.tag == 'a':
-                                    print(field + ': '+ value.text + ' ' + value.attrib['href'])
+                                    site_name = value.text
+                                    site_url = value.attrib['href']
+                                    dbvalue[2] = site_name
+                                    dbvalue[3] = site_url
+                                    print(field + ': '+ site_name + ', ' + site_url)
                                 elif value.tag == 'title':
-                                    print(field + ': ' + value.text)
+                                    page_title = value.text
+                                    dbvalue[1] = page_title
+                                    print(field + ': ' + page_title)
                                 else:
-                                    print(field + ': ' + html.tostring(value, method='text').decode(encoding='UTF-8'))
+                                    site_description = html.tostring(value, method='text').decode(encoding='UTF-8')
+                                    dbvalue[4] = site_description
+                                    print(field + ': ' + site_description)
+                                dbvalue = tuple(dbvalue)
+                                asyncio.Task(self.insert_db(dbvalue))
                         nextelements = element.xpath(self.url_xpath[urlregex]['xpath'])
                         urls = [elem.find('./a').attrib['href'] for elem in nextelements]
                 currentlevel += 1
