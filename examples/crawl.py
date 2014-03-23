@@ -107,9 +107,9 @@ class Crawler:
                 for urlregex in self.url_xpath:
                     regexp = re.compile(urlregex)
                     if regexp.match(url):
+                        dbvalue = [url, None, None, None, None] # [page_url, page_title, site_name, site_url, site_desc]
                         for field in self.url_xpath[urlregex]['fields']:
                             value = element.find(self.url_xpath[urlregex]['fields'][field])
-                            dbvalue = [url, None, None, None, None] # [page_url, page_title, site_name, site_url, site_desc]
                             if value != None:
                                 if value.tag == 'a':
                                     site_name = value.text
@@ -123,10 +123,12 @@ class Crawler:
                                     print(field + ': ' + page_title)
                                 else:
                                     site_description = html.tostring(value, method='text').decode(encoding='UTF-8')
-                                    dbvalue[4] = site_description
+                                    if field == 'description':
+                                        dbvalue[4] = site_description
                                     print(field + ': ' + site_description)
-                                dbvalue = tuple(dbvalue)
-                                asyncio.Task(self.insert_db(dbvalue))
+                        if dbvalue[2]:
+                            dbvalue = tuple(dbvalue)
+                            asyncio.Task(self.insert_db(dbvalue))
                         nextelements = element.xpath(self.url_xpath[urlregex]['xpath'])
                         urls = [elem.find('./a').attrib['href'] for elem in nextelements]
                 currentlevel += 1
